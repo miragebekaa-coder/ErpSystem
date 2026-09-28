@@ -250,7 +250,7 @@ const Mirage = {
 
       Mirage.net.paint();
       var me = document.getElementById("mgMe");
-      if (me) me.onclick = function () { Mirage.avatar.dialog(); };
+      if (me) me.onclick = function () { Mirage.myAccount(); };
       Mirage.avatar.paint();
 
       var inst = document.getElementById("mgInstall");
@@ -1386,6 +1386,143 @@ function esc(v) {
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
+
+/* ══════════════════════════════════════════════════════════
+   حسابي: الصورة الشخصية وكلمة المرور
+   ══════════════════════════════════════════════════════════ */
+
+/** قائمة صغيرة تُفتح من زر الاسم في الشريط الأعلى */
+Mirage.myAccount = function () {
+  var u = this.session();
+  return Swal.fire({
+    title: esc(u.realName),
+    html: '<div style="text-align:center;direction:rtl">' +
+            '<div style="font-size:13px;color:#64748B;line-height:1.9">' +
+              esc(u.jobTitle || u.role || "") + (u.project ? " · " + esc(u.project) : "") +
+            '</div></div>',
+    showCancelButton: true,
+    // كلمة المرور من صلاحية مدير النظام وحده
+    showDenyButton: this.isAdmin(),
+    confirmButtonText: "🖼️ صورتي الشخصية",
+    denyButtonText: "🔑 تغيير كلمة مروري",
+    cancelButtonText: "إغلاق",
+    confirmButtonColor: "#2563EB", denyButtonColor: "#0F172A", cancelButtonColor: "#64748B",
+    width: 460
+  }).then(function (r) {
+    if (r.isConfirmed) return Mirage.avatar.dialog();
+    if (r.isDenied) return Mirage.password.mine();
+  });
+};
+
+
+Mirage.password = {
+  /** كلمة مرور مدير النظام نفسه: الحالية، والجديدة مرتين */
+  mine: function () {
+    if (!Mirage.isAdmin()) {
+      return Mirage.note("تغيير كلمات المرور من صلاحية مدير النظام وحده — راجعه.", "غير متاح");
+    }
+    return Swal.fire({
+      title: "تغيير كلمة المرور",
+      html:
+        '<div style="text-align:right;direction:rtl">' +
+          '<label style="font-size:13px;font-weight:800;display:block;margin-bottom:4px">كلمة المرور الحالية</label>' +
+          '<input type="password" id="pwOld" class="swal2-input" style="margin:0 0 12px;width:100%" autocomplete="current-password">' +
+          '<label style="font-size:13px;font-weight:800;display:block;margin-bottom:4px">الكلمة الجديدة</label>' +
+          '<input type="password" id="pwNew" class="swal2-input" style="margin:0 0 12px;width:100%" autocomplete="new-password">' +
+          '<label style="font-size:13px;font-weight:800;display:block;margin-bottom:4px">أعِد كتابتها</label>' +
+          '<input type="password" id="pwNew2" class="swal2-input" style="margin:0 0 10px;width:100%" autocomplete="new-password">' +
+          '<p style="font-size:12.5px;color:#64748B;line-height:1.8;margin:0">' +
+            'ثمانية أحرف فأكثر. وتُطلب كلمتك الحالية أولاً، فلا يغيّرها من وجد جهازك مفتوحاً.<br>' +
+            'ولتغيير كلمة مرور أي مستخدم آخر: إدارة النظام ← المستخدمون والصلاحيات ← زر 🔑.' +
+          '</p>' +
+        '</div>',
+      width: 480,
+      showCancelButton: true,
+      confirmButtonText: "حفظ الكلمة الجديدة",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "#2563EB", cancelButtonColor: "#64748B",
+      focusConfirm: false,
+      preConfirm: function () {
+        var a = document.getElementById("pwOld").value;
+        var b = document.getElementById("pwNew").value;
+        var c = document.getElementById("pwNew2").value;
+        if (!a) { Swal.showValidationMessage("اكتب كلمة المرور الحالية"); return false; }
+        if (b.length < 8) { Swal.showValidationMessage("الكلمة الجديدة ثمانية أحرف فأكثر"); return false; }
+        if (b !== c) { Swal.showValidationMessage("الكلمتان غير متطابقتين"); return false; }
+        return { current: a, password: b };
+      }
+    }).then(function (r) {
+      if (!r.isConfirmed) return;
+      return Mirage.api("password_change", r.value).then(function (res) {
+        if (res.status !== "success") return Mirage.fail(res);
+        return Mirage.ok("غُيّرت كلمة مرورك. استعملها في الدخول القادم.", "تم");
+      });
+    });
+  },
+
+  /** مدير النظام يضع كلمة مرور لمستخدم آخر */
+  set: function (username, realName, onDone) {
+    return Swal.fire({
+      title: "كلمة مرور لـ " + esc(realName || username),
+      html:
+        '<div style="text-align:right;direction:rtl">' +
+          '<label style="font-size:13px;font-weight:800;display:block;margin-bottom:4px">الكلمة الجديدة</label>' +
+          '<input type="text" id="apNew" class="swal2-input" style="margin:0 0 12px;width:100%" ' +
+            'placeholder="ثمانية أحرف فأكثر">' +
+          '<button type="button" class="btn btn-ghost btn-sm" id="apGen" style="margin-bottom:12px">' +
+            'وَلِّد كلمة قوية</button>' +
+          '<div class="alert alert-warn" style="text-align:right;margin:0;font-size:12.5px;line-height:1.9">' +
+            'ستعمل فوراً. سلّمها لصاحبها بنفسك واطلب منه تغييرها من زر اسمه في الأعلى. ' +
+            'ويُسجَّل في سجلّ كلمات المرور أنك غيّرتها له، بتاريخه وساعته.' +
+          '</div>' +
+        '</div>',
+      width: 500,
+      showCancelButton: true,
+      confirmButtonText: "تغيير كلمة المرور",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "#DC2626", cancelButtonColor: "#64748B",
+      focusConfirm: false,
+      didOpen: function () {
+        document.getElementById("apGen").onclick = function () {
+          document.getElementById("apNew").value = Mirage.password.generate();
+        };
+      },
+      preConfirm: function () {
+        var v = document.getElementById("apNew").value;
+        if (String(v).length < 8) { Swal.showValidationMessage("ثمانية أحرف فأكثر"); return false; }
+        return v;
+      }
+    }).then(function (r) {
+      if (!r.isConfirmed) return;
+      return Mirage.api("password_set", { username: username, password: r.value }).then(function (res) {
+        if (res.status !== "success") return Mirage.fail(res);
+        if (onDone) onDone();
+        return Swal.fire({
+          icon: "success",
+          title: "غُيّرت كلمة المرور",
+          html: '<div style="text-align:right;direction:rtl;font-size:14px;line-height:1.9">' +
+                  'حساب <b>' + esc(realName || username) + '</b> صار بكلمة المرور:' +
+                  '<div style="font-family:monospace;direction:ltr;text-align:center;font-size:19px;' +
+                  'font-weight:900;background:#F1F5F9;border-radius:10px;padding:12px;margin:10px 0">' +
+                  esc(r.value) + '</div>' +
+                  'انسخها الآن — لن تظهر مرة أخرى.</div>',
+          confirmButtonText: "حسناً", confirmButtonColor: "#2563EB", width: 520
+        });
+      });
+    });
+  },
+
+  /** كلمة قوية سهلة النقل: حروف وأرقام بلا ما يلتبس (0/O و1/l) */
+  generate: function () {
+    var A = "ABCDEFGHJKLMNPQRSTUVWXYZ", a = "abcdefghijkmnopqrstuvwxyz", n = "23456789";
+    var all = A + a + n, out = "";
+    var pick = function (s) { return s.charAt(Math.floor(Math.random() * s.length)); };
+    out += pick(A) + pick(a) + pick(n);
+    for (var i = 0; i < 7; i++) out += pick(all);
+    return out.split("").sort(function () { return Math.random() - 0.5; }).join("");
+  }
+};
+
 
 /* ══════════════════════════════════════════════════════════
    صورة المستخدم: تظهر بجانب اسمه في كل مكان

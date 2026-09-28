@@ -287,6 +287,19 @@
           <tbody id="userRows"><tr><td colspan="11" style="text-align:center;color:var(--text-muted)">جارٍ التحميل…</td></tr></tbody>
         </table>
       </div>
+      <p class="hint" style="margin-top:10px">
+        زر 🔑 يضع كلمة مرور جديدة للحساب فوراً. ولا يستطيعها أحد سواك: مفتاح الخدمة الذي
+        يسمح بذلك يبقى في الخادم داخل دالة <b>set-password</b> ولا ينزل إلى المتصفح.
+        وكلمة مرورك أنت تغيّرها من زر اسمك في أعلى الصفحة.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div><h2>🔑 سجلّ كلمات المرور</h2><p>من غيّر كلمة مرور من، ومتى — لا تُحفَظ الكلمات نفسها</p></div>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="pwdLog()">عرض السجلّ</button>
+      </div>
+      <div id="pwdBox"><span class="hint">اضغط «عرض السجلّ».</span></div>
     </div>
   </div>
 
@@ -1200,7 +1213,11 @@ function paintUsers(users) {
             '<td><span class="tag tag-gray">' + x.pages.length + ' صفحة</span></td>' +
             '<td>' + (x.can_notify ? '<span class="tag tag-green">مسموح</span>' : '<span class="tag tag-gray">—</span>') + '</td>' +
             '<td>' + Mirage.tag(x.state) + '</td>' +
-            '<td><button class="btn btn-danger btn-sm" onclick="delUser(\'' + esc(x.username) + '\')">حذف</button></td>' +
+            '<td style="white-space:nowrap">' +
+              '<button class="btn btn-ghost btn-sm" onclick="setPwd(\'' + esc(x.username) + '\',\'' +
+                esc(x.real_name).replace(/'/g, "") + '\')">🔑 كلمة المرور</button> ' +
+              '<button class="btn btn-danger btn-sm" onclick="delUser(\'' + esc(x.username) + '\')">حذف</button>' +
+            '</td>' +
             '</tr>';
         }).join('')
       : '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:26px">لا مستخدمين بعد</td></tr>';
@@ -2052,6 +2069,38 @@ function askRestore(data, what) {
 document.querySelector('.tab[data-tab="bk"]').addEventListener('click', function () {
   if (!BK.length) backupsLoad();
 });
+
+
+/* ═══════════════ كلمات المرور ═══════════════ */
+
+function setPwd(username, realName) {
+  Mirage.password.set(username, realName, function () { pwdLog(); });
+}
+
+function pwdLog() {
+  var box = document.getElementById('pwdBox');
+  box.innerHTML = '<span class="hint">جارٍ التحميل…</span>';
+  Mirage.api('password_events', { limit: 100 }).then(function (res) {
+    if (res.status !== 'success') { box.innerHTML = ''; return Mirage.fail(res); }
+    var items = res.items || [];
+    if (!items.length) {
+      box.innerHTML = '<div class="empty"><span class="ico">🔑</span><b>لا تغييرات بعد</b>' +
+                      'سيظهر هنا كل تغيير لكلمة مرور، بصاحبه وتاريخه.</div>';
+      return;
+    }
+    box.innerHTML =
+      '<div class="table-wrap"><table><thead><tr>' +
+      '<th>التاريخ</th><th>الحساب</th><th>غيّرها</th><th>الصفة</th>' +
+      '</tr></thead><tbody>' +
+      items.map(function (e) {
+        return '<tr><td style="white-space:nowrap">' + Mirage.ltr(e.at) + '</td>' +
+          '<td>' + esc(e.name || e.username) + '</td>' +
+          '<td>' + esc(e.by) + '</td>' +
+          '<td>' + (e.self ? '<span class="tag tag-green">بنفسه</span>'
+                           : '<span class="tag tag-blue">مدير النظام</span>') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  });
+}
 
 loadAll();
 </script>

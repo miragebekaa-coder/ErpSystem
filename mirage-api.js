@@ -1016,6 +1016,91 @@ const MirageAPI = {
       return { status: "success", moved: Number((r.data && r.data.moved) || 0) };
     },
 
+    /* ─────────── كلمات المرور ─────────── */
+
+    /**
+     * تغيير كلمة مرور مدير النظام نفسه.
+     * تغيير كلمات المرور من صلاحيته وحده، وهذه لحسابه هو.
+     * وتُتحقَّق الكلمة الحالية أولاً بتسجيل دخول جانبي لا يمسّ جلسته،
+     * فلا يغيّرها من وجد الجهاز مفتوحاً.
+     */
+    password_change: async function (p) {
+      var me = Mirage.session();
+      if (!Mirage.isAdmin()) {
+        return { status: "error", message: "تغيير كلمات المرور من صلاحية مدير النظام وحده" };
+      }
+      var old = this.str(p.current), nw = this.str(p.password);
+      if (!old) return { status: "error", message: "اكتب كلمة المرور الحالية" };
+      if (nw.length < 8) return { status: "error", message: "كلمة المرور الجديدة ثمانية أحرف فأكثر" };
+      if (nw === old) return { status: "error", message: "الكلمة الجديدة مطابقة للحالية" };
+
+      var tmp = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false }
+      });
+      var chk = await tmp.auth.signInWithPassword({
+        email: me.username + "@" + EMAIL_DOMAIN, password: old
+      });
+      if (chk.error) return { status: "error", message: "كلمة المرور الحالية غير صحيحة" };
+
+      var up = await SB.auth.updateUser({ password: nw });
+      if (up.error) return this.err(up.error, "تعذّر تغيير كلمة المرور");
+
+      await SB.rpc("password_log", { p_username: me.username });
+      return { status: "success" };
+    },
+
+    /**
+     * تغيير كلمة مرور مستخدم آخر — لمدير النظام.
+     * يتم في دالة Edge اسمها set-password، فمفتاح الخدمة يبقى في الخادم
+     * ولا ينزل إلى المتصفح أبداً.
+     */
+    password_set: async function (p) {
+      var u = this.str(p.username).toLowerCase(), nw = this.str(p.password);
+      if (!u) return { status: "error", message: "اسم المستخدم مطلوب" };
+      if (nw.length < 8) return { status: "error", message: "كلمة المرور ثمانية أحرف فأكثر" };
+
+      var r = await SB.functions.invoke("set-password", { body: { username: u, password: nw } });
+
+      if (r.error) {
+        var msg = "تعذّر تغيير كلمة المرور";
+        var detail = "";
+        try {
+          if (r.error.context && r.error.context.json) {
+            var j = await r.error.context.json();
+            msg = j.error || msg; detail = j.detail || "";
+          }
+        } catch (e) {}
+        if (/Failed to send|NetworkError|Failed to fetch|not found|404/i.test(String(r.error.message || ""))) {
+          return {
+            status: "error",
+            message: "الدالة set-password غير منشورة في مشروعك",
+            detail: "لوحة Supabase ← Edge Functions ← Deploy a new function ← Via Editor، " +
+                    "الاسم set-password، والصق ملف supabase/functions/set-password/index.ts."
+          };
+        }
+        return { status: "error", message: msg, detail: detail, raw: String(r.error.message || "") };
+      }
+
+      var d = r.data || {};
+      if (d.error) return { status: "error", message: d.error, detail: d.detail || "" };
+      return { status: "success", username: d.username || u, real_name: d.real_name || "" };
+    },
+
+    /** سجلّ تغييرات كلمات المرور — لمدير النظام */
+    password_events: async function (p) {
+      var r = await SB.rpc("password_events_list", { p_limit: this.num(p.limit) || 100 });
+      if (r.error) return this.needUpgrade(r.error) || this.err(r.error, "تعذّر قراءة السجلّ");
+      return {
+        status: "success",
+        items: (r.data || []).map(function (e) {
+          return {
+            id: e.id, username: e.username, name: e.real_name || "",
+            by: e.by_name || "", self: !!e.by_self, at: e.at || ""
+          };
+        })
+      };
+    },
+
     /* ─────────── صورة المستخدم ─────────── */
 
     /** روابط مؤقتة لصور كل المستخدمين: الاسم ← رابط */
